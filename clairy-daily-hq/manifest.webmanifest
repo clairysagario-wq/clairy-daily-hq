@@ -1,0 +1,12 @@
+{
+  "name": "Clairy Daily HQ",
+  "short_name": "Clairy HQ",
+  "description": "A gentle work and learning dashboard for Clairy.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#fbf9fb",
+  "theme_color": "#88739c",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
