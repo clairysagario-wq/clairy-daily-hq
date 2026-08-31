@@ -1,4 +1,4 @@
-const CACHE = "clairy-hq-v2";
+const CACHE = "clairy-hq-v3";
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./firebase-config.js", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (event) => {

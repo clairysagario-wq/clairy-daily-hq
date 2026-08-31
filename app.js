@@ -87,6 +87,32 @@ function sundayFor(value) {
   return shiftDate(mondayFor(value), 6);
 }
 
+function plannedDueDate(plan, customDate) {
+  if (plan === "today") return selectedDate;
+  if (plan === "this_week") return sundayFor(selectedDate);
+  if (plan === "next_week") return shiftDate(sundayFor(selectedDate), 7);
+  return customDate || selectedDate;
+}
+
+function dueBadgeHtml(task) {
+  if (task.frequency !== "once" || !task.due_date) return "";
+  const dueDate = String(task.due_date);
+  let label = `Due ${shortDate(dueDate)}`;
+  let className = "due-badge";
+
+  if (dueDate < selectedDate) {
+    label = `Overdue · ${shortDate(dueDate)}`;
+    className += " overdue";
+  } else if (dueDate === selectedDate) {
+    label = "Due today";
+    className += " today";
+  } else if (mondayFor(dueDate) === mondayFor(selectedDate)) {
+    label = `Due this week · ${shortDate(dueDate)}`;
+  }
+
+  return `<span class="${className}">◷ ${esc(label)}</span>`;
+}
+
 function isWeekend(value) {
   const day = new Date(`${value}T12:00:00Z`).getUTCDay();
   return day === 0 || day === 6;
@@ -192,7 +218,11 @@ function isScheduled(task, date) {
   if (task.frequency === "daily" || task.frequency === "anytime") return true;
   if (task.frequency === "weekly") return schedule.includes(dayOfWeek);
   if (task.frequency === "twice_monthly" || task.frequency === "monthly") return schedule.includes(dayOfMonth);
-  return task.frequency === "once" && Boolean(task.due_date && task.due_date <= date);
+  if (task.frequency === "once") {
+    if (!task.due_date) return true;
+    return mondayFor(String(task.due_date)) <= date;
+  }
+  return false;
 }
 
 function latestLog(taskId, date) {
@@ -209,7 +239,8 @@ function dashboardItems() {
     const loggedToday = latest?.log_date === selectedDate;
     const completedEarlier = latest?.status === "done" && !loggedToday;
     const unfinishedEarlier = Boolean(latest && latest.log_date < selectedDate && latest.status !== "done");
-    let visible = Boolean(task.is_urgent) || scheduledToday || unfinishedEarlier;
+    const oneTimeWindowOpen = task.frequency !== "once" || !task.due_date || mondayFor(String(task.due_date)) <= selectedDate;
+    let visible = (Boolean(task.is_urgent) && oneTimeWindowOpen) || scheduledToday || unfinishedEarlier;
     if (task.frequency === "once" && completedEarlier) visible = false;
     if (task.frequency === "once" && latest && latest.status !== "done") visible = true;
     if (!visible) return [];
@@ -322,8 +353,8 @@ function taskCardHtml(task) {
   return `<article class="task-card ${done ? "task-card-done" : ""} ${task.is_urgent ? "task-card-urgent" : ""}" data-task-card="${esc(task.id)}">
     <div class="task-main">
       <button class="task-check ${done ? "checked" : ""}" data-action="toggle-done" data-task="${esc(task.id)}" aria-label="${done ? "Reopen" : "Complete"} ${esc(task.title)}">${done ? "✓" : ""}</button>
-      <div class="task-copy"><div class="task-badges"><span class="client-badge client-${clientClass}">${esc(task.client)}</span><span>${esc(task.category)}</span>${task.is_urgent ? `<span class="urgent-badge">♨ Urgent</span>` : ""}${task.carried ? `<span class="carry-badge">↻ Carried over</span>` : ""}</div><h3>${esc(task.title)}</h3><p>${esc(task.default_note)}</p>${task.blocked_by ? `<p class="blocked-line">Waiting on: ${esc(task.blocked_by)}</p>` : ""}</div>
-      <div class="task-actions"><button class="urgent-button ${task.is_urgent ? "active" : ""}" data-action="toggle-urgent" data-task="${esc(task.id)}" ${done ? "disabled" : ""}>♨ ${task.is_urgent ? "Urgent" : "Flag urgent"}</button><select class="status-select status-${esc(task.status)}" data-action="status" data-task="${esc(task.id)}"><option value="todo" ${task.status === "todo" ? "selected" : ""}>To do</option><option value="in_progress" ${task.status === "in_progress" ? "selected" : ""}>Working on it</option><option value="waiting" ${task.status === "waiting" ? "selected" : ""}>Waiting</option><option value="done" ${done ? "selected" : ""}>Done</option></select></div>
+      <div class="task-copy"><div class="task-badges"><span class="client-badge client-${clientClass}">${esc(task.client)}</span><span>${esc(task.category)}</span>${dueBadgeHtml(task)}${task.is_urgent ? `<span class="urgent-badge">⚡ Urgent</span>` : ""}${task.carried ? `<span class="carry-badge">↻ Carried over</span>` : ""}</div><h3>${esc(task.title)}</h3><p>${esc(task.default_note)}</p>${task.blocked_by ? `<p class="blocked-line">Waiting on: ${esc(task.blocked_by)}</p>` : ""}</div>
+      <div class="task-actions"><button class="urgent-button ${task.is_urgent ? "active" : ""}" data-action="toggle-urgent" data-task="${esc(task.id)}" ${done ? "disabled" : ""}>⚡ ${task.is_urgent ? "Urgent" : "Mark urgent"}</button><select class="status-select status-${esc(task.status)}" data-action="status" data-task="${esc(task.id)}"><option value="todo" ${task.status === "todo" ? "selected" : ""}>To do</option><option value="in_progress" ${task.status === "in_progress" ? "selected" : ""}>Working on it</option><option value="waiting" ${task.status === "waiting" ? "selected" : ""}>Waiting</option><option value="done" ${done ? "selected" : ""}>Done</option></select></div>
     </div>
     <div class="note-row"><textarea data-note="${esc(task.id)}" placeholder="Add today’s note or where to continue…">${esc(task.note)}</textarea><button class="outline-button small" data-action="save-note" data-task="${esc(task.id)}">Save note</button></div>
   </article>`;
@@ -362,7 +393,15 @@ function questAchievementsHtml() {
 }
 
 function addDialogHtml() {
-  return `<dialog id="add-dialog"><form method="dialog" id="add-form"><div class="dialog-heading"><div><p class="eyebrow">${activeTab === "quests" ? "Optional growth" : "New work"}</p><h2>${activeTab === "quests" ? "Add a Side Quest" : `Add something for ${esc(prettyDate(selectedDate))}`}</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div><label><span>Task</span><input name="title" required placeholder="What needs to be done?" /></label>${activeTab === "work" ? `<label><span>Client</span><select name="client"><option>Elicra</option><option>OBB</option></select></label>` : ""}<label><span>Starting note <small>(optional)</small></span><textarea name="note" placeholder="Add the next step, blocker, or useful context…"></textarea></label><div class="dialog-actions"><button class="primary-button" value="default" data-action="submit-add">Add to today</button></div></form></dialog>`;
+  return `<dialog id="add-dialog"><form method="dialog" id="add-form"><div class="dialog-heading"><div><p class="eyebrow">${activeTab === "quests" ? "Optional growth" : "New work"}</p><h2>${activeTab === "quests" ? "Add a Side Quest" : "Add a task"}</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div><label><span>Task</span><input name="title" required placeholder="What needs to be done?" /></label>${activeTab === "work" ? `<label><span>Client</span><select name="client"><option>Elicra</option><option>OBB</option></select></label>` : ""}<label><span>When should it appear?</span><select name="plan_window" data-plan-window><option value="today">Today</option><option value="this_week">This week</option><option value="next_week">Next week</option><option value="custom">Choose a date</option></select></label><label class="custom-date-field" data-custom-date hidden><span>Due date</span><input name="due_date" type="date" min="${esc(selectedDate)}" value="${esc(selectedDate)}" /></label><label class="urgent-toggle"><input name="is_urgent" type="checkbox" /><span><strong>Mark as urgent</strong><small>Urgent tasks stay at the top of their scheduled list.</small></span></label><label><span>Starting note <small>(optional)</small></span><textarea name="note" placeholder="Add the next step, blocker, or useful context…"></textarea></label><div class="dialog-actions"><button class="primary-button" value="default" data-action="submit-add">Add task</button></div></form></dialog>`;
+}
+
+function updateCustomDateField(select) {
+  const field = select.closest("form")?.querySelector("[data-custom-date]");
+  const input = field?.querySelector('input[name="due_date"]');
+  const custom = select.value === "custom";
+  if (field) field.hidden = !custom;
+  if (input) input.required = custom;
 }
 
 function emptyHtml(title, text) {
@@ -443,7 +482,12 @@ root.addEventListener("click", async (event) => {
       const note = document.querySelector(`[data-note="${CSS.escape(button.dataset.task)}"]`)?.value ?? "";
       if (task) await saveLog(task, task.status, note.trim());
     }
-    if (action === "open-add") document.querySelector("#add-dialog")?.showModal();
+    if (action === "open-add") {
+      const dialog = document.querySelector("#add-dialog");
+      dialog?.showModal();
+      const planSelect = dialog?.querySelector("[data-plan-window]");
+      if (planSelect) updateCustomDateField(planSelect);
+    }
     if (action === "submit-add") {
       event.preventDefault();
       const form = document.querySelector("#add-form");
@@ -452,11 +496,14 @@ root.addEventListener("click", async (event) => {
       const id = `custom_${Date.now()}`;
       const title = String(values.get("title") ?? "").trim();
       const note = String(values.get("note") ?? "").trim();
+      const plan = String(values.get("plan_window") ?? "today");
+      const dueDate = plannedDueDate(plan, String(values.get("due_date") ?? ""));
+      const isUrgent = values.get("is_urgent") === "on";
       await setDoc(taskPath(id), {
         id, title, client: activeTab === "quests" ? "Side Quest" : String(values.get("client") ?? "Elicra"),
         category: "Added by Clairy", frequency: "once", schedule_days: null,
-        due_date: selectedDate, default_note: note, blocked_by: null,
-        active: true, is_urgent: false, sort_order: Date.now(), created_at: new Date().toISOString()
+        due_date: dueDate, default_note: note, blocked_by: null,
+        active: true, is_urgent: isUrgent, sort_order: Date.now(), created_at: new Date().toISOString()
       });
       document.querySelector("#add-dialog")?.close();
       toast(activeTab === "quests" ? "Side Quest added" : "Task added");
@@ -489,6 +536,11 @@ root.addEventListener("submit", async (event) => {
 });
 
 root.addEventListener("change", async (event) => {
+  const planSelect = event.target.closest("[data-plan-window]");
+  if (planSelect) {
+    updateCustomDateField(planSelect);
+    return;
+  }
   const select = event.target.closest('select[data-action="status"]');
   if (!select) return;
   const task = visibleItemById(select.dataset.task);

@@ -94,10 +94,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .client-obb { color: #76594b; background: #f0e2d8; }
 .client-side-quest { color: #506c55; background: #e8f0e9; }
 .urgent-badge { color: var(--danger); }
+.due-badge { padding: 2px 7px; border-radius: 999px; color: #69567b; background: #f1ebf7; }
+.due-badge.today { color: #7a4a2f; background: #f5e7dc; }
+.due-badge.overdue { color: #943f51; background: #fae9ed; }
 .carry-badge { color: #a26d52; }
 .blocked-line { margin-top: 4px !important; color: #98616a !important; font-weight: 600; }
 .task-actions { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px; }
-.urgent-button { min-height: 34px; padding: 0 8px; border: 0; border-radius: 10px; color: #6c6570; background: transparent; font-size: 10.5px; font-weight: 650; }
+.urgent-button { min-height: 34px; padding: 0 9px; border: 1px solid #e3dbe7; border-radius: 10px; color: #5f5664; background: #fbf9fc; font-size: 10.5px; font-weight: 700; }
+.urgent-button:hover { border-color: #d3c4da; background: #f4eef7; }
 .urgent-button.active { color: var(--danger); background: #faedf0; }
 .status-select { width: 100%; min-height: 38px; padding: 0 10px; border: 1px solid var(--border); border-radius: 12px; color: #4d4651; background: white; font-size: 12px; font-weight: 600; }
 .status-done { color: #4e7254; background: #e6f1e7; }
@@ -147,6 +151,12 @@ dialog label { display: grid; gap: 7px; color: #4f4555; font-size: 12px; font-we
 dialog label small { color: #8c838f; text-transform: none; }
 dialog input,dialog select,dialog textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; color: var(--foreground); background: white; text-transform: none; }
 dialog textarea { min-height: 90px; resize: vertical; }
+.custom-date-field[hidden] { display: none; }
+dialog .urgent-toggle { grid-template-columns: auto 1fr; align-items: center; gap: 11px; padding: 12px 13px; border: 1px solid #eadce1; border-radius: 14px; background: #fff8fa; text-transform: none; letter-spacing: normal; cursor: pointer; }
+dialog .urgent-toggle input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--danger); }
+dialog .urgent-toggle > span { display: grid; gap: 1px; }
+dialog .urgent-toggle strong { color: #4a3e44; font-size: 12px; }
+dialog .urgent-toggle small { color: #7b6f75; font-size: 11px; font-weight: 450; }
 .dialog-actions { display: flex; justify-content: flex-end; margin-top: 5px; }
 .center-shell,.import-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 85% 10%,#f0e2d8,transparent 30%),linear-gradient(135deg,#f5f0f8,#fffdfb); }
 .gate-card,.import-card { width: min(560px,100%); padding: 36px; border: 1px solid var(--border); border-radius: 28px; background: rgba(255,253,251,.94); box-shadow: 0 24px 70px rgba(73,60,84,.1); text-align: center; }
