@@ -449,6 +449,33 @@ function money(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
 }
 
+function addDays(value, amount) {
+  if (!value) return "";
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatInvoiceDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" })
+    .format(new Date(`${value}T12:00:00Z`));
+}
+
+function rowHours(row) {
+  if (row.start && row.end) {
+    const [sh, sm] = String(row.start).split(":").map(Number);
+    const [eh, em] = String(row.end).split(":").map(Number);
+    if ([sh, sm, eh, em].every(Number.isFinite)) {
+      let start = sh * 60 + sm;
+      let end = eh * 60 + em;
+      if (end < start) end += 24 * 60;
+      return Math.max(0, (end - start) / 60);
+    }
+  }
+  return Number(row.hours || 0);
+}
+
 function invoiceNumberFor(client) {
   const year = new Date(`${selectedDate}T12:00:00Z`).getUTCFullYear();
   const count = invoices.filter((item) => item.client === client).length + 1;
@@ -456,20 +483,47 @@ function invoiceNumberFor(client) {
   return `${prefix}-${year}-${String(count).padStart(3, "0")}`;
 }
 
+function invoiceTemplate(client) {
+  if (client === "Elicra") {
+    return {
+      from_name: "Clairy Sagario",
+      from_email: "clairysagario@gmail.com",
+      bill_to_name: "Elicra Investments LLC",
+      bill_to_email: "jenny.vinatieri@gmail.com",
+      description: "Bookkeeping services",
+      payment_method: "Wise",
+      recipient_name: "Marie Clair Sagario",
+      payment_details: "@marieclairs1"
+    };
+  }
+  return {
+    from_name: "Clairy Sagario",
+    from_email: "clairy@onlinebizbuilders.com",
+    bill_to_name: "Online Biz Builders",
+    bill_to_email: "Emonies@onlinebizbuilders.com",
+    description: "Monthly Bookkeeping Services (Part-time)",
+    payment_method: "Wise",
+    recipient_name: "Marie Clair Sagario",
+    payment_details: "@marieclairs1"
+  };
+}
+
 function newInvoiceDraft(client) {
+  const template = invoiceTemplate(client);
   return {
     id: `invoice_${Date.now()}`,
     client,
     invoice_number: invoiceNumberFor(client),
     invoice_date: selectedDate,
+    due_date: addDays(selectedDate, 9),
     period_start: "",
     period_end: "",
     status: "Draft",
     rate: client === "Elicra" ? 7 : null,
     amount: client === "OBB" ? "" : null,
-    description: client === "OBB" ? "Bookkeeping and administrative services" : "",
-    notes: "Thank you!",
-    work_rows: client === "Elicra" ? [{ date: "", hours: "", description: "" }] : []
+    notes: "Thank you and have a great day! :)",
+    ...template,
+    work_rows: client === "Elicra" ? [{ date: "", start: "", end: "", hours: "" }] : []
   };
 }
 
@@ -477,7 +531,7 @@ function invoiceTotals(invoice) {
   if (invoice.client === "OBB") {
     return { hours: null, amount: Number(invoice.amount || 0) };
   }
-  const hours = (invoice.work_rows || []).reduce((sum, row) => sum + Number(row.hours || 0), 0);
+  const hours = (invoice.work_rows || []).reduce((sum, row) => sum + rowHours(row), 0);
   return { hours, amount: hours * Number(invoice.rate || 0) };
 }
 
@@ -489,25 +543,34 @@ function captureInvoiceForm() {
     ...invoiceDraft,
     invoice_number: String(data.get("invoice_number") ?? "").trim(),
     invoice_date: String(data.get("invoice_date") ?? ""),
+    due_date: String(data.get("due_date") ?? ""),
     period_start: String(data.get("period_start") ?? ""),
     period_end: String(data.get("period_end") ?? ""),
     status: String(data.get("status") ?? "Draft"),
+    from_name: String(data.get("from_name") ?? "").trim(),
+    from_email: String(data.get("from_email") ?? "").trim(),
+    bill_to_name: String(data.get("bill_to_name") ?? "").trim(),
+    bill_to_email: String(data.get("bill_to_email") ?? "").trim(),
+    description: String(data.get("description") ?? "").trim(),
+    payment_method: String(data.get("payment_method") ?? "").trim(),
+    recipient_name: String(data.get("recipient_name") ?? "").trim(),
+    payment_details: String(data.get("payment_details") ?? "").trim(),
     notes: String(data.get("notes") ?? "").trim()
   };
 
   if (invoiceDraft.client === "Elicra") {
     invoiceDraft.rate = Number(data.get("rate") || 0);
     const dates = data.getAll("work_date");
-    const hours = data.getAll("work_hours");
-    const descriptions = data.getAll("work_description");
+    const starts = data.getAll("work_start");
+    const ends = data.getAll("work_end");
     invoiceDraft.work_rows = dates.map((date, index) => ({
       date: String(date ?? ""),
-      hours: String(hours[index] ?? ""),
-      description: String(descriptions[index] ?? "").trim()
+      start: String(starts[index] ?? ""),
+      end: String(ends[index] ?? ""),
+      hours: ""
     }));
   } else {
     invoiceDraft.amount = String(data.get("amount") ?? "");
-    invoiceDraft.description = String(data.get("description") ?? "").trim();
   }
   return invoiceDraft;
 }
@@ -515,46 +578,73 @@ function captureInvoiceForm() {
 function invoiceEditorHtml() {
   if (!invoiceDraft) return "";
   const draft = invoiceDraft;
+  const template = invoiceTemplate(draft.client);
   const totals = invoiceTotals(draft);
+  const normalizedRows = (draft.work_rows || []).length ? draft.work_rows : [{ date: "", start: "", end: "", hours: "" }];
   return `<section class="invoice-editor-card">
     <div class="invoice-editor-heading">
-      <div><span class="mini-label">${draft.id && invoices.some((item) => item.id === draft.id) ? "Edit saved invoice" : "New invoice"}</span><h2>${esc(draft.client)} invoice</h2><p>Everything is editable before you save it.</p></div>
+      <div><span class="mini-label">${draft.id && invoices.some((item) => item.id === draft.id) ? "Edit saved invoice" : `${draft.client} template`}</span><h2>${esc(draft.client)} invoice</h2><p>The template is prefilled, but you can edit any invoice detail before saving.</p></div>
       <button class="icon-button" data-action="cancel-invoice" aria-label="Close invoice editor">×</button>
     </div>
     <form id="invoice-form" class="invoice-form">
-      <div class="invoice-form-grid">
+      <div class="invoice-form-grid invoice-meta-grid">
         <label><span>Invoice #</span><input name="invoice_number" value="${esc(draft.invoice_number)}" required /></label>
         <label><span>Invoice date</span><input name="invoice_date" type="date" value="${esc(draft.invoice_date)}" required /></label>
+        <label><span>Due date</span><input name="due_date" type="date" value="${esc(draft.due_date || addDays(draft.invoice_date, 9))}" /></label>
+        <label><span>Status</span><select name="status">${["Draft","Sent","Paid"].map((value) => `<option ${draft.status === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
         <label><span>Period start</span><input name="period_start" type="date" value="${esc(draft.period_start)}" /></label>
         <label><span>Period end</span><input name="period_end" type="date" value="${esc(draft.period_end)}" /></label>
-        <label><span>Status</span><select name="status">${["Draft","Sent","Paid"].map((value) => `<option ${draft.status === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
       </div>
+
+      <div class="invoice-party-grid">
+        <fieldset><legend>From</legend>
+          <label><span>Name</span><input name="from_name" value="${esc(draft.from_name || template.from_name)}" /></label>
+          <label><span>Email</span><input name="from_email" type="email" value="${esc(draft.from_email || template.from_email)}" /></label>
+        </fieldset>
+        <fieldset><legend>Bill to</legend>
+          <label><span>Company</span><input name="bill_to_name" value="${esc(draft.bill_to_name || template.bill_to_name)}" /></label>
+          <label><span>Email</span><input name="bill_to_email" type="email" value="${esc(draft.bill_to_email ?? template.bill_to_email)}" placeholder="${draft.client === "Elicra" ? "Add Jenny's email" : ""}" /></label>
+        </fieldset>
+      </div>
+
+      <label class="invoice-description-label"><span>Invoice description</span><input name="description" value="${esc(draft.description ?? template.description)}" /></label>
 
       ${draft.client === "Elicra" ? `
         <div class="invoice-work-head">
-          <div><h3>Daily work hours</h3><p>These rows support the invoice total.</p></div>
+          <div><h3>Daily work hours</h3><p>Date, Start, End, Total Hrs, and Total Amount will also appear on the printable invoice.</p></div>
           <label class="rate-field"><span>Hourly rate</span><input name="rate" type="number" min="0" step="0.01" value="${esc(draft.rate ?? 7)}" data-invoice-calc /></label>
         </div>
+        <div class="invoice-work-table-head"><span>Date</span><span>Start</span><span>End</span><span>Total Hrs</span><span>Total Amount</span><span></span></div>
         <div class="invoice-work-list">
-          ${(draft.work_rows || []).map((row, index) => `<div class="invoice-work-row">
-            <input name="work_date" type="date" value="${esc(row.date)}" aria-label="Work date" />
-            <input name="work_hours" type="number" min="0" step="0.01" value="${esc(row.hours)}" placeholder="Hours" aria-label="Hours" data-invoice-calc />
-            <input name="work_description" value="${esc(row.description)}" placeholder="Description / work completed" aria-label="Description" />
-            <button class="icon-button invoice-remove-row" type="button" data-action="remove-invoice-row" data-row="${index}" aria-label="Remove row">×</button>
-          </div>`).join("")}
+          ${normalizedRows.map((row, index) => {
+            const hours = rowHours(row);
+            return `<div class="invoice-work-row">
+              <input name="work_date" type="date" value="${esc(row.date || "")}" aria-label="Work date" />
+              <input name="work_start" type="time" value="${esc(row.start || "")}" aria-label="Start time" data-invoice-calc />
+              <input name="work_end" type="time" value="${esc(row.end || "")}" aria-label="End time" data-invoice-calc />
+              <output class="invoice-row-hours" data-row-hours="${index}">${hours ? hours.toFixed(2) : "0.00"}</output>
+              <output class="invoice-row-amount" data-row-amount="${index}">${money(hours * Number(draft.rate || 0))}</output>
+              <button class="icon-button invoice-remove-row" type="button" data-action="remove-invoice-row" data-row="${index}" aria-label="Remove row">×</button>
+            </div>`;
+          }).join("")}
         </div>
-        <button class="outline-button small invoice-add-row" type="button" data-action="add-invoice-row">＋ Add work day</button>
+        <button class="outline-button small invoice-add-row" type="button" data-action="add-invoice-row">＋ Add work entry</button>
         <div class="invoice-live-total"><span>Total hours <strong data-invoice-hours>${totals.hours.toFixed(2)}</strong></span><span>Invoice total <strong data-invoice-total>${money(totals.amount)}</strong></span></div>
       ` : `
         <div class="invoice-form-grid">
-          <label class="span-two"><span>Description</span><input name="description" value="${esc(draft.description ?? "")}" /></label>
           <label><span>Total amount</span><input name="amount" type="number" min="0" step="0.01" value="${esc(draft.amount ?? "")}" required data-invoice-calc /></label>
         </div>
         <div class="invoice-live-total"><span>Invoice total <strong data-invoice-total>${money(totals.amount)}</strong></span></div>
       `}
 
+      <div class="invoice-payment-grid">
+        <label><span>Payment method</span><input name="payment_method" value="${esc(draft.payment_method || template.payment_method)}" /></label>
+        <label><span>Recipient name</span><input name="recipient_name" value="${esc(draft.recipient_name || template.recipient_name)}" /></label>
+        <label><span>WiseTag / payment details</span><input name="payment_details" value="${esc(draft.payment_details || template.payment_details)}" /></label>
+      </div>
+
       <label class="invoice-notes-label"><span>Invoice note</span><textarea name="notes" rows="2">${esc(draft.notes ?? "")}</textarea></label>
-      <div class="invoice-editor-actions"><button class="outline-button" type="button" data-action="cancel-invoice">Cancel</button><button class="primary-button" type="submit">Save invoice</button></div>
+      <div class="invoice-editor-actions"><button class="outline-button" type="button" data-action="cancel-invoice">Cancel</button><button class="outline-button" type="button" data-action="preview-invoice">Print preview</button><button class="primary-button" type="submit">Save invoice</button></div>
     </form>
   </section>`;
 }
@@ -586,12 +676,12 @@ function invoiceHistoryHtml() {
 
 function invoiceHtml() {
   return `<section class="invoice-overview">
-    <div><span class="mini-label">Saved with your private Firebase account</span><h2>Invoice tracker</h2><p>Create, edit, reuse, and pull up previous invoices for Elicra and OBB.</p></div>
-    <div class="invoice-new-actions"><button class="outline-button" data-action="new-invoice" data-invoice-client="Elicra">＋ Elicra invoice</button><button class="primary-button" data-action="new-invoice" data-invoice-client="OBB">＋ OBB invoice</button></div>
+    <div><span class="mini-label">Ready-to-edit templates</span><h2>Invoice tracker</h2><p>Use the Elicra or OBB template, save each invoice, and print everything into one PDF.</p></div>
+    <div class="invoice-new-actions"><button class="outline-button" data-action="new-invoice" data-invoice-client="Elicra">＋ Elicra template</button><button class="primary-button" data-action="new-invoice" data-invoice-client="OBB">＋ OBB template</button></div>
   </section>
   ${invoiceEditorHtml()}
   <section class="invoice-history-section">
-    <div class="section-heading"><div><h2>Saved invoices</h2><p>Elicra keeps daily hour support; OBB keeps the total amount.</p></div><nav class="client-filter invoice-filter">${["All","Elicra","OBB"].map((name) => `<button class="${invoiceFilter === name ? "active" : ""}" data-invoice-filter="${name}">${name}</button>`).join("")}</nav></div>
+    <div class="section-heading"><div><h2>Saved invoices</h2><p>Elicra includes its daily time log in the PDF; OBB uses the editable service description and total.</p></div><nav class="client-filter invoice-filter">${["All","Elicra","OBB"].map((name) => `<button class="${invoiceFilter === name ? "active" : ""}" data-invoice-filter="${name}">${name}</button>`).join("")}</nav></div>
     ${invoiceHistoryHtml()}
   </section>`;
 }
@@ -603,7 +693,7 @@ async function saveInvoiceFromForm() {
   if (!form?.reportValidity()) return;
 
   if (draft.client === "Elicra") {
-    draft.work_rows = (draft.work_rows || []).filter((row) => row.date || row.hours || row.description);
+    draft.work_rows = (draft.work_rows || []).filter((row) => row.date || row.start || row.end || row.hours);
   }
 
   const totals = invoiceTotals(draft);
@@ -621,6 +711,7 @@ async function saveInvoiceFromForm() {
 }
 
 function printInvoice(invoice) {
+  const template = invoiceTemplate(invoice.client);
   const totals = invoiceTotals(invoice);
   const popup = window.open("", "_blank");
   if (!popup) {
@@ -628,31 +719,44 @@ function printInvoice(invoice) {
     return;
   }
 
+  const fromName = invoice.from_name || template.from_name;
+  const fromEmail = invoice.from_email || template.from_email;
+  const billName = invoice.bill_to_name || template.bill_to_name;
+  const billEmail = invoice.bill_to_email ?? template.bill_to_email;
+  const description = invoice.description || template.description;
+  const paymentMethod = invoice.payment_method || template.payment_method;
+  const recipientName = invoice.recipient_name || template.recipient_name;
+  const paymentDetails = invoice.payment_details || template.payment_details;
+
   const workRows = invoice.client === "Elicra" ? `
+    <div class="service-description"><strong>${esc(description)}</strong></div>
     <table>
-      <thead><tr><th>Date</th><th>Description</th><th class="right">Hours</th></tr></thead>
-      <tbody>${(invoice.work_rows || []).filter((row) => row.date || row.hours || row.description).map((row) => `<tr><td>${esc(row.date || "")}</td><td>${esc(row.description || "")}</td><td class="right">${Number(row.hours || 0).toFixed(2)}</td></tr>`).join("")}</tbody>
+      <thead><tr><th>Date</th><th>Start</th><th>End</th><th class="right">Total Hrs</th><th class="right">Total Amount</th></tr></thead>
+      <tbody>${(invoice.work_rows || []).filter((row) => row.date || row.start || row.end || row.hours).map((row) => {
+        const hours = rowHours(row);
+        return `<tr><td>${esc(row.date ? formatInvoiceDate(row.date) : "")}</td><td>${esc(row.start || "")}</td><td>${esc(row.end || "")}</td><td class="right">${hours.toFixed(2)}</td><td class="right">${money(hours * Number(invoice.rate || 0))}</td></tr>`;
+      }).join("")}</tbody>
     </table>
     <div class="summary"><span>Total hours</span><strong>${Number(totals.hours || 0).toFixed(2)}</strong></div>
     <div class="summary"><span>Hourly rate</span><strong>${money(invoice.rate || 0)}</strong></div>` : `
-    <p class="service">${esc(invoice.description || "Bookkeeping and administrative services")}</p>`;
+    <table class="service-table"><thead><tr><th>Description</th><th class="right">Qty/Hours</th><th class="right">Rate</th><th class="right">Amount</th></tr></thead>
+    <tbody><tr><td>${esc(description)}</td><td class="right">1.00</td><td class="right">${money(totals.amount)}</td><td class="right">${money(totals.amount)}</td></tr></tbody></table>`;
 
   popup.document.write(`<!doctype html><html><head><meta charset="UTF-8"><title>${esc(invoice.invoice_number || "Invoice")}</title><style>
-    *{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#302a34;margin:0;padding:42px} .sheet{max-width:820px;margin:auto}
-    .top{display:flex;justify-content:space-between;gap:28px;align-items:flex-start;border-bottom:2px solid #88739c;padding-bottom:24px;margin-bottom:30px}
-    h1{margin:0;font-size:38px;letter-spacing:-1px}.brand{font-size:18px;font-weight:700;color:#69567b}.meta{text-align:right;font-size:13px;line-height:1.8}
-    .bill{margin-bottom:26px}.bill small,.summary span{color:#716976}.bill strong{display:block;font-size:20px;margin-top:4px}
-    table{width:100%;border-collapse:collapse;margin:22px 0}th,td{padding:12px 10px;border-bottom:1px solid #e4dfe7;text-align:left;font-size:13px}.right{text-align:right}
-    .summary{display:flex;justify-content:flex-end;gap:28px;margin:9px 0;font-size:14px}.summary strong{min-width:100px;text-align:right}
-    .total{margin-top:18px;padding-top:14px;border-top:2px solid #88739c;font-size:21px}.service{padding:18px;border:1px solid #e4dfe7;border-radius:12px;background:#fbf9fb}
-    .note{margin-top:34px;color:#716976;font-size:13px}.print{margin-top:28px;padding:12px 18px;border:0;border-radius:9px;background:#88739c;color:white;font-weight:700;cursor:pointer}
-    @media print{body{padding:0}.print{display:none}}
+    *{box-sizing:border-box} @page{size:auto;margin:14mm} body{font-family:Arial,sans-serif;color:#2f2a32;margin:0;background:#fff} .sheet{max-width:900px;margin:auto;padding:20px 8px}
+    .top{display:flex;justify-content:space-between;gap:36px;align-items:flex-start;margin-bottom:54px}.identity h2{font-size:25px;margin:0 0 6px}.identity p{margin:0;color:#6f6872;font-size:13px}.invoice-title{text-align:right}.invoice-title h1{margin:0 0 15px;font-size:38px;letter-spacing:5px}.meta{font-size:13px;line-height:1.9;color:#6f6872}.meta strong{color:#3d3740}
+    .party-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:38px}.party{border:1px solid #e7e1e9;border-left:4px solid #d8c6df;border-radius:12px;padding:15px 17px;min-height:88px}.party small{display:block;font-size:10px;font-weight:700;letter-spacing:.06em;margin-bottom:7px}.party strong{display:block;font-size:17px}.party span{display:block;color:#716976;font-size:12px;margin-top:4px}
+    .service-description{margin:0 0 8px;font-size:13px} table{width:100%;border-collapse:collapse;margin:10px 0 22px}th,td{padding:12px 9px;border-bottom:1px solid #e7e2e8;text-align:left;font-size:12px}th{color:#7b747e;font-size:10px;letter-spacing:.03em}.right{text-align:right}
+    .summary{display:flex;justify-content:flex-end;gap:32px;margin:8px 0;font-size:13px}.summary span{color:#716976}.summary strong{min-width:110px;text-align:right}.obb-summary{width:300px;margin:0 0 4px auto;font-size:12px}.obb-summary div{display:flex;justify-content:space-between;gap:24px;padding:6px 0}.obb-summary span{color:#716976}.total-box{margin:16px 0 38px auto;padding:14px 16px;border:1px solid #e2dce5;border-radius:10px;max-width:300px;display:flex;justify-content:space-between;align-items:center}.total-box span{font-weight:700;font-size:12px}.total-box strong{font-size:23px;color:#665170}
+    .bottom{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:28px}.bottom-section{border-top:1px solid #e4dfe6;padding-top:13px;font-size:12px;color:#716976;line-height:1.65}.bottom-section h3{margin:0 0 9px;font-size:10px;color:#302a34;letter-spacing:.05em}.bottom-section p{margin:0}.print{display:block;margin:34px auto 0;padding:12px 18px;border:0;border-radius:9px;background:#88739c;color:white;font-weight:700;cursor:pointer}
+    @media print{.print{display:none}.sheet{padding:0}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body><div class="sheet">
-    <div class="top"><div><div class="brand">Clairy Sagario</div><h1>INVOICE</h1></div><div class="meta"><strong>${esc(invoice.invoice_number || "")}</strong><br>Invoice date: ${esc(invoice.invoice_date || "")}<br>${invoice.period_start || invoice.period_end ? `Period: ${esc(invoice.period_start || "—")} to ${esc(invoice.period_end || "—")}` : ""}</div></div>
-    <div class="bill"><small>BILL TO</small><strong>${invoice.client === "Elicra" ? "Elicra Investments LLC" : "Online Biz Builders LLC"}</strong></div>
+    <div class="top"><div class="identity"><h2>${esc(fromName)}</h2><p>${esc(fromEmail)}</p></div><div class="invoice-title"><h1>INVOICE</h1><div class="meta"><strong>Invoice:</strong> ${esc(invoice.invoice_number || "")}<br><strong>Issued:</strong> ${esc(formatInvoiceDate(invoice.invoice_date || ""))}<br>${invoice.due_date ? `<strong>Due:</strong> ${esc(formatInvoiceDate(invoice.due_date))}<br>` : ""}${invoice.period_start || invoice.period_end ? `<strong>Period:</strong> ${esc(invoice.period_start ? formatInvoiceDate(invoice.period_start) : "—")} – ${esc(invoice.period_end ? formatInvoiceDate(invoice.period_end) : "—")}` : ""}</div></div></div>
+    <div class="party-grid"><div class="party"><small>FROM</small><strong>${esc(fromName)}</strong><span>${esc(fromEmail)}</span></div><div class="party"><small>BILL TO</small><strong>${esc(billName)}</strong>${billEmail ? `<span>${esc(billEmail)}</span>` : ""}</div></div>
     ${workRows}
-    <div class="summary total"><span>Total due</span><strong>${money(totals.amount)}</strong></div>
-    ${invoice.notes ? `<p class="note">${esc(invoice.notes)}</p>` : ""}
+    ${invoice.client === "OBB" ? `<div class="obb-summary"><div><span>Subtotal</span><strong>${money(totals.amount)}</strong></div><div><span>Discount (0%)</span><strong>-$0.00</strong></div><div><span>Tax (0%)</span><strong>$0.00</strong></div></div>` : ""}
+    <div class="total-box"><span>Total Due</span><strong>${money(totals.amount)}</strong></div>
+    <div class="bottom"><div class="bottom-section"><h3>NOTES</h3><p>${esc(invoice.notes || "")}</p></div><div class="bottom-section"><h3>PAYMENT INSTRUCTIONS</h3><p>Payment Method: ${esc(paymentMethod)}<br>Recipient Name: ${esc(recipientName)}${paymentDetails ? `<br>WiseTag: ${esc(paymentDetails)}` : ""}</p></div></div>
     <button class="print" onclick="window.print()">Print / Save as PDF</button>
   </div></body></html>`);
   popup.document.close();
@@ -665,8 +769,19 @@ function refreshInvoiceTotals() {
   let amount = 0;
   let hours = null;
   if (invoiceDraft.client === "Elicra") {
-    hours = data.getAll("work_hours").reduce((sum, value) => sum + Number(value || 0), 0);
-    amount = hours * Number(data.get("rate") || 0);
+    const starts = data.getAll("work_start");
+    const ends = data.getAll("work_end");
+    const rate = Number(data.get("rate") || 0);
+    hours = starts.reduce((sum, start, index) => {
+      const row = { start: String(start || ""), end: String(ends[index] || "") };
+      const rowTotal = rowHours(row);
+      const hoursNode = document.querySelector(`[data-row-hours="${index}"]`);
+      const amountNode = document.querySelector(`[data-row-amount="${index}"]`);
+      if (hoursNode) hoursNode.textContent = rowTotal.toFixed(2);
+      if (amountNode) amountNode.textContent = money(rowTotal * rate);
+      return sum + rowTotal;
+    }, 0);
+    amount = hours * rate;
   } else {
     amount = Number(data.get("amount") || 0);
   }
@@ -840,7 +955,7 @@ root.addEventListener("click", async (event) => {
     }
     if (action === "add-invoice-row") {
       captureInvoiceForm();
-      invoiceDraft.work_rows = [...(invoiceDraft.work_rows || []), { date: "", hours: "", description: "" }];
+      invoiceDraft.work_rows = [...(invoiceDraft.work_rows || []), { date: "", start: "", end: "", hours: "" }];
       render();
       document.querySelector(".invoice-editor-card")?.scrollIntoView({ block: "start" });
     }
@@ -848,7 +963,7 @@ root.addEventListener("click", async (event) => {
       captureInvoiceForm();
       const index = Number(button.dataset.row);
       invoiceDraft.work_rows = (invoiceDraft.work_rows || []).filter((_, rowIndex) => rowIndex !== index);
-      if (!invoiceDraft.work_rows.length) invoiceDraft.work_rows = [{ date: "", hours: "", description: "" }];
+      if (!invoiceDraft.work_rows.length) invoiceDraft.work_rows = [{ date: "", start: "", end: "", hours: "" }];
       render();
     }
     if (action === "edit-invoice") {
@@ -874,6 +989,10 @@ root.addEventListener("click", async (event) => {
         render();
         document.querySelector(".invoice-editor-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
       }
+    }
+    if (action === "preview-invoice") {
+      const draft = captureInvoiceForm();
+      if (draft) printInvoice(draft);
     }
     if (action === "print-invoice") {
       const saved = invoices.find((item) => item.id === button.dataset.invoice);

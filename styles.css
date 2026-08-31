@@ -156,8 +156,19 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .invoice-work-head p { margin: 0; color: var(--muted); font-size: 11px; }
 .rate-field { width: 150px; }
 .invoice-work-list { display: grid; gap: 8px; }
-.invoice-work-row { display: grid; grid-template-columns: 145px 95px minmax(0,1fr) 38px; gap: 8px; align-items: center; }
+.invoice-work-row { display: grid; grid-template-columns: 140px 100px 100px 90px 120px 38px; gap: 8px; align-items: center; }
 .invoice-work-row .invoice-remove-row { width: 38px; height: 38px; }
+.invoice-work-table-head { display:grid; grid-template-columns:140px 100px 100px 90px 120px 38px; gap:8px; padding:0 4px; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+.invoice-row-hours,.invoice-row-amount { display:flex; align-items:center; min-height:42px; padding:9px 11px; border:1px solid #e6dfea; border-radius:12px; background:#faf7fb; color:var(--foreground); font-size:12px; font-weight:700; }
+.invoice-row-amount { justify-content:flex-end; }
+.invoice-party-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.invoice-party-grid fieldset { display:grid; gap:10px; margin:0; padding:16px; border:1px solid var(--border); border-radius:16px; }
+.invoice-party-grid legend { padding:0 6px; color:#514858; font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
+.invoice-description-label { display:grid; gap:6px; color:#514858; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+.invoice-description-label input { width:100%; min-height:42px; padding:9px 11px; border:1px solid var(--border); border-radius:12px; color:var(--foreground); background:#fff; font:inherit; font-size:12px; text-transform:none; }
+.invoice-payment-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.invoice-payment-grid label { display:grid; gap:6px; color:#514858; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+.invoice-payment-grid input { width:100%; min-height:42px; padding:9px 11px; border:1px solid var(--border); border-radius:12px; color:var(--foreground); background:#fff; font:inherit; font-size:12px; text-transform:none; }
 .invoice-add-row { justify-self: start; }
 .invoice-live-total { display: flex; justify-content: flex-end; gap: 24px; padding: 14px 16px; border: 1px solid #e6dfea; border-radius: 15px; background: #faf7fb; color: var(--muted); font-size: 11px; }
 .invoice-live-total span { display: flex; align-items: baseline; gap: 7px; }
@@ -247,8 +258,12 @@ code { padding: 2px 5px; border-radius: 5px; background: var(--secondary); }
   .invoice-form .span-two { grid-column: auto; }
   .invoice-work-head { align-items: stretch; flex-direction: column; }
   .rate-field { width: 100%; }
-  .invoice-work-row { grid-template-columns: 1fr 88px 38px; }
-  .invoice-work-row input[name="work_description"] { grid-column: 1/-1; grid-row: 2; }
+  .invoice-party-grid,.invoice-payment-grid { grid-template-columns: 1fr; }
+  .invoice-work-table-head { display:none; }
+  .invoice-work-row { grid-template-columns: 1fr 1fr 1fr; padding:12px; border:1px solid var(--border); border-radius:14px; background:#fff; }
+  .invoice-work-row input[name="work_date"] { grid-column:1/-1; }
+  .invoice-row-hours,.invoice-row-amount { justify-content:flex-start; }
+  .invoice-work-row .invoice-remove-row { justify-self:end; }
   .invoice-live-total { justify-content: space-between; }
   .invoice-history-section .section-heading { align-items: stretch; flex-direction: column; }
   .invoice-filter { width: 100%; }
