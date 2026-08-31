@@ -288,3 +288,29 @@ code { padding: 2px 5px; border-radius: 5px; background: var(--secondary); }
   .quest-score { width: 100%; min-height: 82px; }
   .gate-card,.import-card { padding: 28px 20px; }
 }
+
+/* Priority-grouped task sections */
+.task-section.priority-section {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.priority-urgent {
+  border-top-color: #dca9b4 !important;
+}
+.priority-urgent .section-heading h2 {
+  color: var(--danger);
+}
+.priority-completed {
+  margin-top: 30px !important;
+}
+.due-badge {
+  color: #65586d;
+  font-weight: 700;
+}
+.due-today {
+  color: var(--primary-dark);
+}
+.due-overdue {
+  color: var(--danger);
+}

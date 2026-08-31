@@ -288,7 +288,8 @@ function dashboardItems() {
     const loggedToday = latest?.log_date === selectedDate;
     const completedEarlier = latest?.status === "done" && !loggedToday;
     const unfinishedEarlier = Boolean(latest && latest.log_date < selectedDate && latest.status !== "done");
-    let visible = Boolean(task.is_urgent) || scheduledToday || unfinishedEarlier;
+    const futureDated = task.frequency === "once" && Boolean(task.due_date && task.due_date > selectedDate);
+    let visible = Boolean(task.is_urgent) || scheduledToday || unfinishedEarlier || futureDated;
     if (task.frequency === "once" && completedEarlier) visible = false;
     if (task.frequency === "once" && latest && latest.status !== "done") visible = true;
     if (!visible) return [];
@@ -300,8 +301,19 @@ function dashboardItems() {
     const section = ["daily", "weekly", "twice_monthly", "monthly"].includes(task.frequency)
       ? "core"
       : task.frequency === "anytime" ? "anytime" : "current";
-    return [{ ...task, status, note, noteHistory, carried: unfinishedEarlier, section }];
+    return [{ ...task, status, note, noteHistory, carried: unfinishedEarlier, scheduledToday, section }];
   });
+}
+
+function priorityBucket(task) {
+  if (task.is_urgent) return "urgent";
+  if (task.section === "anytime") return "needed";
+  if (task.frequency === "once" && task.due_date) {
+    if (task.due_date <= selectedDate || task.carried) return "today";
+    if (task.due_date <= sundayFor(selectedDate)) return "week";
+    return "later";
+  }
+  return "today";
 }
 
 function sortTasks(items) {
@@ -311,6 +323,9 @@ function sortTasks(items) {
     if (aDone !== bDone) return aDone ? 1 : -1;
     if (Boolean(a.is_urgent) !== Boolean(b.is_urgent)) return a.is_urgent ? -1 : 1;
     if (a.carried !== b.carried) return a.carried ? -1 : 1;
+    const aDue = a.due_date || "9999-12-31";
+    const bDue = b.due_date || "9999-12-31";
+    if (aDue !== bDue) return aDue.localeCompare(bDue);
     return (a.sort_order ?? 0) - (b.sort_order ?? 0);
   });
 }
@@ -323,9 +338,12 @@ function render() {
   const core = work.filter((task) => task.section === "core");
   const completedCore = core.filter((task) => task.status === "done").length;
   const progress = core.length ? Math.round(completedCore / core.length * 100) : 0;
-  const openCore = sortTasks(work.filter((task) => task.section === "core" && task.status !== "done"));
-  const openCurrent = sortTasks(work.filter((task) => task.section === "current" && task.status !== "done"));
-  const openAnytime = sortTasks(work.filter((task) => task.section === "anytime" && task.status !== "done"));
+  const openWork = work.filter((task) => task.status !== "done");
+  const urgentWork = sortTasks(openWork.filter((task) => priorityBucket(task) === "urgent"));
+  const todayWork = sortTasks(openWork.filter((task) => priorityBucket(task) === "today"));
+  const weekWork = sortTasks(openWork.filter((task) => priorityBucket(task) === "week"));
+  const laterWork = sortTasks(openWork.filter((task) => priorityBucket(task) === "later"));
+  const neededWork = sortTasks(openWork.filter((task) => priorityBucket(task) === "needed"));
   const completedWork = sortTasks(work.filter((task) => task.status === "done"));
   const openQuests = sortTasks(quests.filter((task) => task.status !== "done"));
   const completedQuests = sortTasks(quests.filter((task) => task.status === "done"));
@@ -369,11 +387,13 @@ function render() {
             <div class="toolbar-actions"><button class="outline-button" data-action="scroll-weekly">♕ Weekly recap</button><button class="primary-button" data-action="open-add">＋ Add task</button></div>
           </div>
           ${isWeekend(selectedDate) ? `<div class="weekend-note">☕ <span><strong>Weekend mode</strong>Fresh recurring client tasks are resting. Carryovers, one-time work, and urgent items still appear.</span></div>` : ""}
-          ${sectionHtml("Daily checklist", "The recurring work that keeps both clients current.", openCore)}
-          ${sectionHtml("Carryovers & current work", "Projects, follow-ups, and waiting items that need continuity.", openCurrent)}
-          ${sectionHtml("When needed", "Visible when useful, without counting against core progress.", openAnytime)}
-          ${!openCore.length && !openCurrent.length && !openAnytime.length && !completedWork.length ? emptyHtml("Nothing scheduled here.", "Try another client or date.") : ""}
-          ${sectionHtml("Completed today", "Checked items move here automatically, keeping unfinished work first.", completedWork)}
+          ${sectionHtml("♨ Urgent tasks", "Anything you flag urgent stays at the very top, regardless of recurrence or due date.", urgentWork, "priority-section priority-urgent")}
+          ${sectionHtml("To do today", "Recurring work, carryovers, overdue items, and tasks due today.", todayWork, "priority-section priority-today")}
+          ${sectionHtml("To do this week", "Upcoming tasks due before the end of this week.", weekWork, "priority-section priority-week")}
+          ${sectionHtml("Upcoming / later", "Future-dated tasks kept visible so nothing gets lost.", laterWork, "priority-section priority-later")}
+          ${sectionHtml("When needed", "Optional or anytime tasks that can wait until you need them.", neededWork, "priority-section priority-needed")}
+          ${!urgentWork.length && !todayWork.length && !weekWork.length && !laterWork.length && !neededWork.length && !completedWork.length ? emptyHtml("Nothing scheduled here.", "Try another client or date.") : ""}
+          ${sectionHtml("Completed today", "Checked items move here automatically, keeping unfinished work first.", completedWork, "priority-section priority-completed")}
           ${weeklyHtml(items)}
         ` : activeTab === "quests" ? `
           <section class="quest-overview"><div><span class="mini-label">Optional growth time</span><h2>Choose what feels useful today.</h2><p>Side Quests never count against your client-work checklist. One focused lesson or small build is already a win.</p></div><div class="quest-score"><strong>${completedQuests.length}</strong><span>completed today</span></div></section>
@@ -393,9 +413,16 @@ function statCard(icon, count, label) {
   return `<div class="soft-stat"><span class="stat-icon">${icon}</span><span><strong>${count}</strong>${esc(label)}</span></div>`;
 }
 
-function sectionHtml(title, subtitle, items) {
+function sectionHtml(title, subtitle, items, extraClass = "") {
   if (!items.length) return "";
-  return `<section class="task-section"><div class="section-heading"><div><h2>${esc(title)}</h2><p>${esc(subtitle)}</p></div><span>${items.length} ${items.length === 1 ? "task" : "tasks"}</span></div><div class="task-list">${items.map(taskCardHtml).join("")}</div></section>`;
+  return `<section class="task-section ${esc(extraClass)}"><div class="section-heading"><div><h2>${esc(title)}</h2><p>${esc(subtitle)}</p></div><span>${items.length} ${items.length === 1 ? "task" : "tasks"}</span></div><div class="task-list">${items.map(taskCardHtml).join("")}</div></section>`;
+}
+
+function dueBadgeHtml(task) {
+  if (task.frequency !== "once" || !task.due_date) return "";
+  if (task.due_date < selectedDate) return `<span class="due-badge due-overdue">Overdue · ${esc(shortDate(task.due_date))}</span>`;
+  if (task.due_date === selectedDate) return `<span class="due-badge due-today">Due today</span>`;
+  return `<span class="due-badge">Due ${esc(shortDate(task.due_date))}</span>`;
 }
 
 function taskCardHtml(task) {
@@ -404,7 +431,7 @@ function taskCardHtml(task) {
   return `<article class="task-card ${done ? "task-card-done" : ""} ${task.is_urgent ? "task-card-urgent" : ""}" data-task-card="${esc(task.id)}">
     <div class="task-main">
       <button class="task-check ${done ? "checked" : ""}" data-action="toggle-done" data-task="${esc(task.id)}" aria-label="${done ? "Reopen" : "Complete"} ${esc(task.title)}">${done ? "✓" : ""}</button>
-      <div class="task-copy"><div class="task-badges"><span class="client-badge client-${clientClass}">${esc(task.client)}</span><span>${esc(task.category)}</span>${task.is_urgent ? `<span class="urgent-badge">♨ Urgent</span>` : ""}${task.carried ? `<span class="carry-badge">↻ Carried over</span>` : ""}</div><h3>${esc(task.title)}</h3><p>${esc(task.default_note)}</p>${task.blocked_by ? `<p class="blocked-line">Waiting on: ${esc(task.blocked_by)}</p>` : ""}</div>
+      <div class="task-copy"><div class="task-badges"><span class="client-badge client-${clientClass}">${esc(task.client)}</span><span>${esc(task.category)}</span>${task.is_urgent ? `<span class="urgent-badge">♨ Urgent</span>` : ""}${task.carried ? `<span class="carry-badge">↻ Carried over</span>` : ""}${dueBadgeHtml(task)}</div><h3>${esc(task.title)}</h3><p>${esc(task.default_note)}</p>${task.blocked_by ? `<p class="blocked-line">Waiting on: ${esc(task.blocked_by)}</p>` : ""}</div>
       <div class="task-actions"><button class="urgent-button ${task.is_urgent ? "active" : ""}" data-action="toggle-urgent" data-task="${esc(task.id)}" ${done ? "disabled" : ""}>♨ ${task.is_urgent ? "Urgent" : "Flag urgent"}</button><select class="status-select status-${esc(task.status)}" data-action="status" data-task="${esc(task.id)}"><option value="todo" ${task.status === "todo" ? "selected" : ""}>To do</option><option value="in_progress" ${task.status === "in_progress" ? "selected" : ""}>Working on it</option><option value="waiting" ${task.status === "waiting" ? "selected" : ""}>Waiting</option><option value="done" ${done ? "selected" : ""}>Done</option></select></div>
     </div>
     ${task.noteHistory?.length ? `<div class="note-history">${task.noteHistory.map((entry) => `<div class="note-update"><span>${esc(noteStamp(entry))}</span><p>${esc(entry.text)}</p></div>`).join("")}</div>` : ""}
@@ -802,7 +829,9 @@ function autoExpandVisibleNotes() {
 }
 
 function addDialogHtml() {
-  return `<dialog id="add-dialog"><form method="dialog" id="add-form"><div class="dialog-heading"><div><p class="eyebrow">${activeTab === "quests" ? "Optional growth" : "New work"}</p><h2>${activeTab === "quests" ? "Add a Side Quest" : `Add something for ${esc(prettyDate(selectedDate))}`}</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div><label><span>Task</span><input name="title" required placeholder="What needs to be done?" /></label>${activeTab === "work" ? `<label><span>Client</span><select name="client"><option>Elicra</option><option>OBB</option></select></label>` : ""}<label><span>Starting note <small>(optional)</small></span><textarea name="note" placeholder="Add the next step, blocker, or useful context…"></textarea></label><div class="dialog-actions"><button class="primary-button" value="default" data-action="submit-add">Add to today</button></div></form></dialog>`;
+  const thisWeekDue = sundayFor(selectedDate);
+  const nextWeekDue = shiftDate(thisWeekDue, 7);
+  return `<dialog id="add-dialog"><form method="dialog" id="add-form"><div class="dialog-heading"><div><p class="eyebrow">${activeTab === "quests" ? "Optional growth" : "New work"}</p><h2>${activeTab === "quests" ? "Add a Side Quest" : `Add something for ${esc(prettyDate(selectedDate))}`}</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div><label><span>Task</span><input name="title" required placeholder="What needs to be done?" /></label>${activeTab === "work" ? `<label><span>Client</span><select name="client"><option>Elicra</option><option>OBB</option></select></label>` : ""}<label><span>Due</span><select name="due_option" data-due-option><option value="today">Today · ${esc(shortDate(selectedDate))}</option><option value="this_week">This week · ${esc(shortDate(thisWeekDue))}</option><option value="next_week">Next week · ${esc(shortDate(nextWeekDue))}</option><option value="custom">Custom date…</option></select></label><label data-custom-due hidden><span>Custom due date</span><input name="custom_due_date" type="date" value="${esc(selectedDate)}" /></label><label><span>Starting note <small>(optional)</small></span><textarea name="note" placeholder="Add the next step, blocker, or useful context…"></textarea></label><div class="dialog-actions"><button class="primary-button" value="default" data-action="submit-add" data-add-submit>Add to today</button></div></form></dialog>`;
 }
 
 function emptyHtml(title, text) {
@@ -935,10 +964,19 @@ root.addEventListener("click", async (event) => {
       const id = `custom_${Date.now()}`;
       const title = String(values.get("title") ?? "").trim();
       const note = String(values.get("note") ?? "").trim();
+      const dueOption = String(values.get("due_option") ?? "today");
+      const thisWeekDue = sundayFor(selectedDate);
+      const dueDate = dueOption === "this_week"
+        ? thisWeekDue
+        : dueOption === "next_week"
+          ? shiftDate(thisWeekDue, 7)
+          : dueOption === "custom"
+            ? String(values.get("custom_due_date") || selectedDate)
+            : selectedDate;
       await setDoc(taskPath(id), {
         id, title, client: activeTab === "quests" ? "Side Quest" : String(values.get("client") ?? "Elicra"),
         category: "Added by Clairy", frequency: "once", schedule_days: null,
-        due_date: selectedDate, default_note: note, blocked_by: null,
+        due_date: dueDate, default_note: note, blocked_by: null,
         active: true, is_urgent: false, sort_order: Date.now(), created_at: new Date().toISOString()
       });
       document.querySelector("#add-dialog")?.close();
@@ -1037,6 +1075,32 @@ root.addEventListener("input", (event) => {
 });
 
 root.addEventListener("change", async (event) => {
+  const dueSelect = event.target.closest("[data-due-option]");
+  if (dueSelect) {
+    const dialog = dueSelect.closest("dialog");
+    const customWrap = dialog?.querySelector("[data-custom-due]");
+    const customInput = customWrap?.querySelector('input[name="custom_due_date"]');
+    const submit = dialog?.querySelector("[data-add-submit]");
+    const custom = dueSelect.value === "custom";
+    if (customWrap) customWrap.hidden = !custom;
+    if (customInput) customInput.required = custom;
+    if (submit) {
+      const thisWeekDue = sundayFor(selectedDate);
+      if (dueSelect.value === "this_week") submit.textContent = "Add to this week";
+      else if (dueSelect.value === "next_week") submit.textContent = "Add to next week";
+      else if (custom) submit.textContent = customInput?.value ? `Add for ${shortDate(customInput.value)}` : "Add for custom date";
+      else submit.textContent = "Add to today";
+    }
+    return;
+  }
+
+  const customDue = event.target.closest('input[name="custom_due_date"]');
+  if (customDue) {
+    const submit = customDue.closest("dialog")?.querySelector("[data-add-submit]");
+    if (submit) submit.textContent = customDue.value ? `Add for ${shortDate(customDue.value)}` : "Add for custom date";
+    return;
+  }
+
   const select = event.target.closest('select[data-action="status"]');
   if (!select) return;
   const task = visibleItemById(select.dataset.task);
